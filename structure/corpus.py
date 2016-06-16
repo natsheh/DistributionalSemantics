@@ -1,37 +1,52 @@
 # coding: utf-8
 import csv
 import string
+import os
+import gensim
+from gensim.parsing.preprocessing import STOPWORDS
+import spacy as sp
+import pickle
 
 from scipy.sparse import dok_matrix
 import numpy as np
 
-__authors__ = "Adrien Guille"
-__email__ = "adrien.guille@univ-lyon2.fr"
+__authors__ = "Adrien Guille, Hussein AL-NATSHEH"
+__emails__ = "adrien.guille@univ-lyon2.fr, hussein.al-natsheh@ish-lyon.cnrs.fr"
 
 
-def tokenize(text):
-    # split the documents into tokens based on whitespaces
-    raw_tokens = text.split()
-    # trim punctuation and convert to lower case
-    return [token.strip(string.punctuation).lower() for token in raw_tokens]
-
+class WikiSentences(object):
+    def __init__(self, dirname):
+        self.dirname = dirname
+        self.parser = sp.load('en')
+ 
+    def __iter__(self):
+        tokenize = gensim.utils.tokenize
+        for sub in os.listdir(self.dirname):
+            subdir = self.dirname + sub
+            for fname in os.listdir(subdir):
+                for line in open(os.path.join(subdir, fname)):
+                    if len(line.split()) < 2 or line[:8] == '<doc id=':
+                        continue
+                    else:                        
+                        try:
+                            line = line.encode('utf-8','ignore').decode('utf-8')
+                            for sent in self.parser(line).sents:
+                                tokens = [token for token in tokenize(sent.orth_, lower=True) if token not in STOPWORDS and len(token) > 2]
+                                yield tokens
+                        except:
+                            continue
 
 class Corpus:
-    def __init__(self, source_file_path, max_nb_features=10000, window_size=5, decreasing_weighting=False):
-        input_file = open(source_file_path)
-        csv_reader = csv.reader(input_file, delimiter='\t')
-        header = next(csv_reader)
-        text_column_index = header.index('text')
+    def __init__(self, sentences, max_nb_features=100000, window_size=100, decreasing_weighting=False):
 
         # first pass to identify features, i.e. the vocabulary
         print('   Identifying features (i.e. the vocabulary)...')
         self.size = 0
         word_frequency = {}
-        for line in csv_reader:
+        for sent in sentences:
             self.size += 1
-            words = tokenize(line[text_column_index])
             # update word frequency
-            for word in words:
+            for word in sent:
                 if len(word) > 0:
                     frequency = 0
                     if word_frequency.get(word) is not None:
@@ -59,10 +74,8 @@ class Corpus:
         else:
             self.X = dok_matrix((len(self.vocabulary), len(self.vocabulary)), dtype=np.short)
         # go back to the beginning of the csv file
-        input_file.seek(1)
-        csv_reader = csv.reader(input_file, delimiter='\t')
-        for line in csv_reader:
-            words = tokenize(line[text_column_index])
+        for words in sentences:
+            self.size += 1
             nb_words = len(words)
             for i in range(nb_words):
                 # check whether the current word is part of the vocabulary or not
